@@ -16,6 +16,7 @@ git :init
 #that folder to repository
 run "touch tmp/.gitignore"
 run "touch log/.gitignore"
+run "touch vendor/.gitignore"
 
 #making .gitignore file in RAILS_ROOT
 file '.gitignore', <<-GITIGNORE_FILE
@@ -26,6 +27,8 @@ db/*.sqlite3
 doc/app
 doc/api
 .idea/
+vendor/
+
 GITIGNORE_FILE
 
 #adding all files to repository
@@ -37,6 +40,10 @@ git :commit   => "-a -m 'Initial commit' "
 
 #installing rspec, rpspec-rails, cucumber and factory_girl as a testing platform,
 #
+
+plugin 'rspec', :git => 'git://github.com/dchelimsky/rspec.git'
+plugin 'rspec-rails', :git => 'git://github.com/dchelimsky/rspec-rails.git'
+
 gem 'factory_girl'
 gem 'webrat'
 

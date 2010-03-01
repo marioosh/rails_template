@@ -17,6 +17,7 @@ git :init
 run "touch tmp/.gitignore"
 run "touch log/.gitignore"
 run "touch vendor/.gitignore"
+run "cp config/database.yml config/database.yml.example"
 
 #making .gitignore file in RAILS_ROOT
 file '.gitignore', <<-GITIGNORE_FILE
@@ -24,11 +25,14 @@ file '.gitignore', <<-GITIGNORE_FILE
 log/*.log
 tmp/**/*
 db/*.sqlite3
+db/*.db
+db/schema.rb
 doc/app
 doc/api
 .idea/
 vendor/
-
+config/database.yml
+coverage/*
 GITIGNORE_FILE
 
 #adding all files to repository

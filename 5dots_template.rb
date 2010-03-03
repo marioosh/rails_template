@@ -55,6 +55,8 @@ plugin 'authlogic', :git  => 'git://github.com/binarylogic/authlogic.git'
 #GEMS
 gem 'factory_girl'
 gem 'webrat'
+gem 'declarative_authorization', :source => 'http://gemcutter.org'
+
 
 #routes
 route "map.resources :user_sessions, :users, :static_articles"
@@ -76,6 +78,8 @@ generate :rspec_model , "User login:string email:string crypted_password:string 
 generate :rspec_controller, 'User_sessions'
 generate :rspec_controller, 'Users new edit'
 generate :rspec_scaffold, "Static_article title:string content:text user_id:integer"
+generate :rspec_model, "Role name:string display_name:string"
+generate :rspec_model, "UsersRole user_id:integer role_id:integer"
 
 
 run 'rm -rf test'
@@ -143,22 +147,61 @@ APP_CSS
 
 
 
-# user file:
+# user model file:
 file 'app/models/user.rb', <<-USER
 class User < ActiveRecord::Base
+  attr_accessible :login, :email, :password, :password_confirmation, :roles, :role_ids
+
   acts_as_authentic
+
+  has_many :users_roles
+  has_many :roles, :through => :users_roles
+
+  accepts_nested_attributes_for :roles
+
+  def role_symbols
+    roles.map do |role|
+      role.name.underscore.to_sym
+    end
+  end
+
+  def has_role?(role_name)
+    self.role_symbols.include?(role_name)
+  end
 end
 USER
+
+#role model file
+file 'app/models/role.rb', <<-ROLE
+class Role < ActiveRecord::Base
+  attr_accessible :name, :display_name
+
+  has_many :users_roles
+  has_many :users , :through => :users_roles
+end
+ROLE
+
+#users_role model file
+file 'app/models/users_role.rb',<<-USERS_ROLE
+class UsersRole <ActiveRecord::Base
+  attr_accessible :role_id, :user_id
+
+  belongs_to :user
+  belongs_to :role
+end
+USERS_ROLE
 
 #user controller
 file 'app/controllers/users_controller.rb', <<-USER_CONTROLLER
 class UsersController < ApplicationController
+  filter_resource_access
   def new
 	@user = User.new
   end
 
  def create
     @user = User.new(params[:user])
+    @user.roles << Role.find_by_name("user")
     if @user.save
       flash[:notice] = "Registration successful."
       redirect_to root_path
@@ -224,6 +267,7 @@ USER_FORM
 # user session controller
 file 'app/controllers/user_sessions_controller.rb', <<-USER_SESSION_CONTROLLER
 class UserSessionsController < ApplicationController
+    filter_resource_access
     def new
       @user_session = UserSession.new
     end
@@ -270,7 +314,29 @@ class ApplicationController < ActionController::Base
 
   filter_parameter_logging :password
 
-helper_method :current_user, :current_user_session
+before_filter :set_current_user
+
+helper_method :current_user, :logged_in?
+
+
+def logged_in?
+  current_user
+end
+
+def current_user
+    return @current_user if defined?(@current_user)
+    @current_user = current_user_session && current_user_session.user
+end
+
+protected
+   def permission_denied
+    flash[:error] = "Permission Denied"
+    redirect_to login_url
+  end
+
+ def set_current_user
+   Authorization.current_user = current_user
+ end
 
 private
   def current_user_session
@@ -278,12 +344,45 @@ private
     @current_user_session = UserSession.find
   end
 
-  def current_user
-    return @current_user if defined?(@current_user)
-    @current_user = current_user_session && current_user_session.user
-  end
+
 end
 APP_CONTROLLER
+
+#default seed data
+file 'db/seeds.rb', <<-SEED_DATA
+puts "ładowanie domyślnych ról"
+Role.create!(:name => "user", :display_name =>"Użytkownik")
+Role.create!(:name => "admin", :display_name =>"Administrator")
+puts "załadowano role!/n"
+SEED_DATA
+
+file 'config/authorization_rules.rb',<<-AUTHORIZATION_RULES
+authorization do
+  role :guest do
+    has_permission_on [:user_sessions], :to => [:new, :create]
+    has_permission_on [:users], :to => [:new, :create]
+    has_permission_on :static_articles, :to  => :read
+  end
+
+  role :user do
+     includes :guest
+      has_permission_on :user_sessions, :to => :delete
+      has_permission_on :static_articles, :to  => :create
+  end
+  role :admin do
+    has_permission_on [:users, :user_sessions, :static_articles ], :to => :all
+  end
+
+
+end
+privileges do
+  privilege :all, :includes => [:create, :read, :update, :delete]
+  privilege :read, :includes => [:index, :show]
+  privilege :create, :includes => :new
+  privilege :update, :includes => :edit
+  privilege :delete, :includes => :destroy
+end
+AUTHORIZATION_RULES
 
 
 #comitting Test Facility to repository
@@ -291,6 +390,7 @@ git :add  => '.'
 git :commit  => "-a -m 'Builded simple application from template' "
 
 rake "db:migrate"
+rake "db:seed"
 
 puts "###############################################"
 puts "##                                           ##"

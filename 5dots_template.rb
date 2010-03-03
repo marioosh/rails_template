@@ -103,7 +103,7 @@ file 'app/views/layouts/application.html.erb', <<-LAYOUT_FILE
      <div id="content_wrapper">
       <div id="user_menu">
         <% if current_user %>
-            <%= link_to "Edit profile", edit_user_path(:current_user) %>
+            <%= link_to "Edit profile", edit_user_path(current_user) %>
             <%= link_to "Logout", logout_path %>
         <% else %>
           <%= link_to "Register", new_user_path %>
@@ -156,6 +156,7 @@ class User < ActiveRecord::Base
 
   has_many :users_roles
   has_many :roles, :through => :users_roles
+  has_many :static_articles
 
   accepts_nested_attributes_for :roles
 
@@ -229,12 +230,12 @@ USER_CONTROLLER
 
 #user views
 file 'app/views/users/new.html.erb',<<-NEW_USER_ERB
-<h1>New User</h1>
+<h1>Register</h1>
 <%= render :partial => "form" %>
 NEW_USER_ERB
 
 file 'app/views/users/edit.html.erb',<<-EDIT_USER_ERB
-<h1>EDIT User</h1>
+<h1>Edit profile</h1>
 <%= render :partial => "form" %>
 EDIT_USER_ERB
 
@@ -350,10 +351,10 @@ APP_CONTROLLER
 
 #default seed data
 file 'db/seeds.rb', <<-SEED_DATA
-puts "ładowanie domyślnych ról"
+puts "default roles"
 Role.create!(:name => "user", :display_name =>"Użytkownik")
 Role.create!(:name => "admin", :display_name =>"Administrator")
-puts "załadowano role!/n"
+puts "Roles loaded!/n"
 SEED_DATA
 
 file 'config/authorization_rules.rb',<<-AUTHORIZATION_RULES
@@ -368,6 +369,12 @@ authorization do
      includes :guest
       has_permission_on :user_sessions, :to => :delete
       has_permission_on :static_articles, :to  => :create
+      has_permission_on :users, :to => [:edit, :update] do
+         if_attribute :id  => is {user.id}
+      end
+      has_permission_on :static_articles, :to => [:edit, :update] do
+        if_attribute :user_id => is {user.id}
+      end
   end
   role :admin do
     has_permission_on [:users, :user_sessions, :static_articles ], :to => :all
@@ -384,10 +391,152 @@ privileges do
 end
 AUTHORIZATION_RULES
 
+file 'app/controllers/static_articles_controller.rb', <<-ARTICLES_CONTROLLER
+class StaticArticlesController < ApplicationController
+filter_resource_access
+  def index
+    @static_articles = StaticArticle.all
+  end
+
+  def show
+  end
+
+  def new
+    @static_article = StaticArticle.new
+  end
+
+  def edit
+  end
+
+  def create
+    params[:static_article][:user_id] = current_user.id
+    @static_article = StaticArticle.new(params[:static_article])
+
+      if @static_article.save
+        flash[:notice] = 'StaticArticle was successfully created.'
+        redirect_to(@static_article)
+      else
+        render :action => "new"
+      end
+end
+
+  def update
+     if @static_article.update_attributes(params[:static_article])
+        flash[:notice] = 'Article was successfully updated.'
+        redirect_to(@static_article)
+
+      else
+        render :action => "edit"
+      end
+
+  end
+  def destroy
+    @static_article.destroy
+	redirect_to(static_articles_url)
+  end
+end
+ARTICLES_CONTROLLER
+
+file 'app/views/static_articles/show.html.erb', <<-SHOW_ARTICLE_VIEW
+<p>
+  <b>Title:</b>
+  <%=h @static_article.title %>
+</p>
+
+<p>
+  <b>Content:</b>
+  <%=h @static_article.content %>
+</p>
+
+<p>
+  <b>Author:</b>
+  <%=h @static_article.user.login %>
+</p>
+
+<% if permitted_to? :edit, @static_article %>
+<%= link_to 'Edit', edit_static_article_path(@static_article) %> |
+<% end %>
+<%= link_to 'Back to List', static_articles_path %>
+SHOW_ARTICLE_VIEW
+
+file 'app/views/static_articles/index.html.erb', <<-ARTICLE_INDEX_VIEW
+      <h1>Listing articles</h1>
+
+<table>
+  <tr>
+    <th>Title</th>
+    <th>Content</th>
+    <th>Author</th>
+  </tr>
+
+<% @static_articles.each do |static_article| %>
+  <tr>
+    <td><%=h static_article.title %></td>
+    <td><%=h static_article.content %></td>
+    <td><%=h static_article.user.login %></td>
+
+    <td><%= link_to 'Show', static_article %></td>
+<% if permitted_to? :edit, static_article %>
+    <td><%= link_to 'Edit', edit_static_article_path(static_article) %></td>
+<% end %>
+<% if permitted_to? :destroy, static_article %>
+    <td><%= link_to 'Destroy', static_article, :confirm => 'Are you sure?', :method => :delete %></td>
+<% end %>
+  </tr>
+<% end %>
+</table>
+
+<br />
+  <% if permitted_to? :create, StaticArticle.new %>
+<%= link_to 'New Article', new_static_article_path %>
+<% end %>
+ARTICLE_INDEX_VIEW
+
+file 'app/views/static_articles/edit.html.erb', <<-EDIT_ARTICLE_VIEW
+<h1>Editing Article</h1>
+<%= render :partial => "form" %>
+
+
+<%= link_to 'Show', @static_article %> |
+<%= link_to 'Back', static_articles_path %>
+EDIT_ARTICLE_VIEW
+
+file 'app/views/static_articles/new.html.erb', <<-NEW_ARTICLE_VIEW
+<h1>New Article</h1>
+
+<%= render :partial  => "form"  %>
+
+<%= link_to 'Back', static_articles_path %>
+NEW_ARTICLE_VIEW
+
+file 'app/views/static_articles/_form.html.erb', <<-ARTICLE_PARTIAL
+<% form_for(@static_article) do |f| %>
+  <%= f.error_messages %>
+
+  <p>
+    <%= f.label :title %><br />
+    <%= f.text_field :title %>
+  </p>
+  <p>
+    <%= f.label :content %><br />
+    <%= f.text_area :content %>
+  </p>
+
+  <p>
+    <%= f.submit 'Update' %>
+  </p>
+<% end %>
+ARTICLE_PARTIAL
+
+file 'app/models/static_article.rb', <<-ARTICLE_MODEL
+class StaticArticle < ActiveRecord::Base
+  belongs_to :user
+end
+ARTICLE_MODEL
 
 #comitting Test Facility to repository
 git :add  => '.'
-git :commit  => "-a -m 'Builded simple application from template' "
+git :commit  => "-a -m 'Build simple application from template' "
 
 rake "db:migrate"
 rake "db:seed"
